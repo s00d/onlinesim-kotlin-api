@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # release.yml runs the same checks before publishing.
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # The build needs JDK 17+; the published jar targets Java 11 (jvmTarget 11, -Xjdk-release=11).
+    name: test (jdk ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [17, 21, 25]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew spotlessCheck --no-daemon
+      # build = compile (explicit API, warnings as errors) + tests (incl. MockOnlineSim) + the docs examples compiled
+      # against the SDK; dokkaGeneratePublicationHtml is the javadoc jar's input.
+      - run: ./gradlew build dokkaGeneratePublicationHtml --no-daemon
+
+  smoke-artifact:
+    # Publish to a repository inside build/, check the POM, sources/javadoc jars, module metadata and class files
+    # (major 55), resolve the artifact (plus the Java SDK from Maven Central) from an empty Gradle project and run the
+    # README "Testing" example on Java 11.
+    name: smoke from artifact (java 11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # The last one is the default (builds); 11 runs the example.
+          java-version: |
+            11
+            17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: SMOKE_JAVA_HOME="$JAVA_HOME_11_X64" ./scripts/smoke-artifact.sh

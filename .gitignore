@@ -1,0 +1,23 @@
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# Gradle
+.gradle/
+build/
+out/
+local.properties
+gradle.properties
+
+.DS_Store
+.env
+
+# docs site (standalone package in docs/)
+/docs/node_modules
+/docs/.nuxt
+/docs/.output
+/docs/.data
+/docs/dist
+
+# Kotlin compiler caches
+.kotlin/
