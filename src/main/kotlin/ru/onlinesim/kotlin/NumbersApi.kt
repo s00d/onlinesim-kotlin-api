@@ -76,7 +76,11 @@ public class NumbersApi internal constructor(
      */
     public suspend fun close(tzid: Long): Unit = io { java.close(tzid) }
 
-    /** Finishes the operation and reports the number as bad (only before any SMS arrived). */
+    /**
+     * Finishes the operation and reports the number as bad (only before any SMS arrived).
+     *
+     * @throws ApiException code `"0"` when the operation already has an SMS (nothing is changed), or as [close]
+     */
     public suspend fun ban(tzid: Long): Unit = io { java.ban(tzid) }
 
     /** Services, prices and stock of every country, keyed by country code. No key needed. */
@@ -92,8 +96,9 @@ public class NumbersApi internal constructor(
     /**
      * Polls [stateOne] every [interval] until a code different from [since] arrives, then closes the operation (or
      * calls [next] with [keepOpen]) and returns the code. Suspends with `delay`, so it is cancellable and runs on
-     * virtual time under `runTest`. A transient [TransportException] is retried until the timeout; any
-     * [ApiException] is thrown at once.
+     * virtual time under `runTest`. Transient errors are retried until the timeout: [TransportException], and
+     * [ApiException] `TRY_AGAIN_LATER` (the HTTP 429 rate limit), `ERROR_UNDEFINED` and
+     * `INTERVAL_CONCURRENT_REQUESTS_ERROR`. Any other [ApiException] is thrown at once.
      *
      * @param interval poll interval; [Duration.ZERO] polls back to back (with the mock's `addSmsAfter`)
      * @param timeout give up after this long
@@ -102,8 +107,8 @@ public class NumbersApi internal constructor(
      * @param since ignore this value (the previous code when waiting for the next one)
      * @return the code (or the full text with [fullMessage])
      * @throws WaitTimeoutException when no code arrived in time
-     * @throws ApiException `TZ_OVER_OK` / `ERROR_NO_ITEMS` when the operation ended without a new code, or any other
-     *   API error
+     * @throws ApiException `TZ_OVER_OK` / `ERROR_NO_ITEMS` when the operation ended without a new code, or any
+     *   non-transient API error
      */
     public suspend fun waitCode(
         tzid: Long,
@@ -123,6 +128,9 @@ public class NumbersApi internal constructor(
                     stateOne(tzid, messageToCode = !fullMessage)
                 } catch (e: TransportException) {
                     return null // transient: retried until the timeout
+                } catch (e: ApiException) {
+                    if (e.code in RETRYABLE) return null
+                    throw e
                 }
             val msg = op.msg()
             if (!msg.isNullOrEmpty() && msg != since) return msg
@@ -145,6 +153,11 @@ public class NumbersApi internal constructor(
         // Outside the timeout: a code that arrived is never lost to it.
         if (keepOpen) next(tzid) else close(tzid)
         return code
+    }
+
+    private companion object {
+        /** Error codes that mean "try again": rate limit (HTTP 429), a transient server error, too many requests. */
+        val RETRYABLE = setOf("TRY_AGAIN_LATER", "ERROR_UNDEFINED", "INTERVAL_CONCURRENT_REQUESTS_ERROR")
     }
 
     private fun options(

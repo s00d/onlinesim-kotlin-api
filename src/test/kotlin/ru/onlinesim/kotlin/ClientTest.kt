@@ -84,7 +84,14 @@ class ClientTest {
             val f = Fake().reply(456, """{"response":"ERROR_WRONG_KEY"}""")
             val e = assertFailsWith<ApiException> { f.client.user.balance() }
             assertEquals("ERROR_WRONG_KEY", e.code)
-            assertEquals("Wrong API key", e.message)
+            assertEquals("Wrong or missing API key", e.message)
+        }
+
+    @Test
+    fun mapsHttp429RateLimitToApiExceptionNotTransport() =
+        runTest {
+            val f = Fake().reply(429, """{"response":"TRY_AGAIN_LATER"}""")
+            assertEquals("TRY_AGAIN_LATER", assertFailsWith<ApiException> { f.client.user.balance() }.code)
         }
 
     @Test

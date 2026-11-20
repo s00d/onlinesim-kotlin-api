@@ -18,7 +18,7 @@ fun main() = runBlocking {
     val client = OnlineSim(System.getenv("ONLINESIM_KEY"))
 
     val b = client.user.balance()
-    println("available: ${b.balance() - b.zbalance()} USD")
+    println("available: ${b.balance() - maxOf(b.zbalance(), 0.0)} USD")
 
     val order = client.numbers.getWithNumber("google", 44)
     println("enter ${order.number()} in the app")

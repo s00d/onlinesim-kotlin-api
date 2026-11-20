@@ -6,7 +6,9 @@ public class RentApi internal constructor(
     private val io: Io,
 ) {
     /**
-     * Rents a number and charges the balance.
+     * Rents a number. The price is reserved (it shows in `zbalance`): the rent starts with `status` 0 and the first SMS
+     * that is not a `notify` notice confirms it and charges the price; without one it closes after 20 minutes and the
+     * reservation is released. Countries with `confirm` in [tariffs] are confirmed and charged at once.
      *
      * @param days one of the tariff's `days` keys
      * @param extension `false` makes the rent non-extendable for good
@@ -28,7 +30,13 @@ public class RentApi internal constructor(
      */
     public suspend fun stateOne(tzid: Long): RentItem = io { java.stateOne(tzid) }
 
-    /** Extends a rent and charges the balance (only rents created with `extension = true`). */
+    /**
+     * Extends a rent and charges the balance at once. Only confirmed rents (`status` 1 or 4) created with
+     * `extension = true`.
+     *
+     * @throws ApiException `TRY_AGAIN_LATER` (unknown tzid, not confirmed yet or closed, not extendable, unknown
+     *   period, a repeat within 10 s), `WARNING_LOW_BALANCE`
+     */
     public suspend fun extend(
         tzid: Long,
         days: Int = 1,
@@ -45,9 +53,11 @@ public class RentApi internal constructor(
     public suspend fun tariffsOne(country: Int = 7): RentTariff = io { java.tariffsOne(country) }
 
     /**
-     * Returns the number before the rent period ends.
+     * Returns the number before the rent period ends. An unconfirmed rent without SMS can be closed only after 120 s;
+     * then, or with only `notify` SMS, the reservation is released. With a real SMS it is confirmed (charged) and
+     * closed. A confirmed rent closes without a refund.
      *
-     * @throws ApiException e.g. `NO_COMPLETE_TZID`, `NO_CLOSE_RENT_US`
+     * @throws ApiException e.g. `ERROR_NO_OPERATIONS`, `NO_COMPLETE_TZID`, `NO_CLOSE_RENT_US`
      */
     public suspend fun close(tzid: Long): Unit = io { java.close(tzid) }
 }

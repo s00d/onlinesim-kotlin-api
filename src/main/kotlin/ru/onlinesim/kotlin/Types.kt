@@ -2,7 +2,7 @@
 // `order.tzid()`), re-exported here so `import ru.onlinesim.kotlin.*` is all a Kotlin user needs.
 package ru.onlinesim.kotlin
 
-/** Balance, USD: `balance()` includes the frozen `zbalance()`. */
+/** Balance, USD: `balance()` includes the frozen `zbalance()`; available = `balance() - max(zbalance(), 0)`. */
 public typealias Balance = ru.onlinesim.Balance
 
 /** A number ordered with [NumbersApi.getWithNumber]. */
@@ -17,7 +17,7 @@ public typealias OperationSms = ru.onlinesim.OperationSms
 /** Order of [NumbersApi.state]: `ASC` (oldest first, default) or `DESC`. */
 public typealias OrderBy = ru.onlinesim.StateOptions.Order
 
-/** A rented number. */
+/** A rented number; `sum()` is the cost in USD incl. extensions. */
 public typealias RentItem = ru.onlinesim.RentItem
 
 /** One SMS of a rent. */
@@ -68,10 +68,13 @@ public typealias HttpTransport = ru.onlinesim.HttpTransport
 /** Base of every exception thrown by the SDK. */
 public typealias OnlineSimException = ru.onlinesim.OnlineSimException
 
-/** The API answered an error code: `code` (raw string) and `message`. A wrong key (HTTP 456) is one too. */
+/**
+ * The API answered an error code: `code` (raw string) and `message`. A wrong key (HTTP 456) and the rate limit
+ * (HTTP 429 `TRY_AGAIN_LATER`) are ones too.
+ */
 public typealias ApiException = ru.onlinesim.ApiException
 
-/** No number available right now (`NO_NUMBER`, `NO_NUMBER_FOR_FORWARD`). A subclass of [ApiException]. */
+/** No number available right now (`NO_NUMBER`). A subclass of [ApiException]. */
 public typealias NoNumberException = ru.onlinesim.NoNumberException
 
 /** Network failure, request timeout or a non-JSON answer: `status` (null without a response) and `body` excerpt. */

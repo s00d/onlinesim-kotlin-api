@@ -37,7 +37,7 @@ fun main() = runBlocking {
     val client = OnlineSim(System.getenv("ONLINESIM_KEY"))
 
     val balance = client.user.balance()
-    println("available: ${balance.balance() - balance.zbalance()} USD")
+    println("available: ${balance.balance() - maxOf(balance.zbalance(), 0.0)} USD")
 
     val order = client.numbers.getWithNumber("google", 44)
     println("enter ${order.number()} in the app")
@@ -69,7 +69,7 @@ The client is immutable and thread-safe; share one instance. Every method is a `
 
 Sections: [`client.numbers`](/numbers), [`client.rent`](/rent), [`client.user`](/user), [`client.free`](/free). Webhook bodies are parsed by the top-level [`parseWebhook`](/webhooks). `client.java` is the underlying Java client.
 
-Durations (`timeout`, the `waitCode` interval) are `kotlin.time.Duration`. Response objects are the Java SDK's immutable classes, re-exported as type aliases in `ru.onlinesim.kotlin` (`Operation`, `RentItem`, `Balance`, …), with accessors named after the server's fields (`webhook_url` → `webhookUrl()`); nullable ones are platform types — treat `msg()`, `income()`, … as nullable. Money that the server sends as a decimal string (`balance`, rent `sum`) is a `Double`; maps that arrive as an empty PHP array `[]` are empty maps. Collections are never `null`.
+Durations (`timeout`, the `waitCode` interval) are `kotlin.time.Duration`. Response objects are the Java SDK's immutable classes, re-exported as type aliases in `ru.onlinesim.kotlin` (`Operation`, `RentItem`, `Balance`, …), with accessors named after the server's fields (`webhook_url` → `webhookUrl()`); nullable ones are platform types — treat `msg()`, `income()`, … as nullable. Money that the server sends as a decimal string (`balance`, rent `sum` in `rent.state()`) is a `Double`; maps that arrive as an empty PHP array `[]` are empty maps. `paymentHistory().paylist()` keeps a paylist that arrives as a JSON array (ids 0, 1, 2…), keyed by index. Collections are never `null`.
 
 A proxy or a custom TLS setup goes through your own `HttpClient`:
 
@@ -88,8 +88,8 @@ Every exception is unchecked and extends `OnlineSimException` (the Java SDK's cl
 
 | Class | When | Properties |
 |---|---|---|
-| `ApiException` | The API answered with an error code (also a wrong key, HTTP 456). | `code`, `message` |
-| `NoNumberException` | `NO_NUMBER` / `NO_NUMBER_FOR_FORWARD`: no number right now. Subclass of `ApiException`. | `code`, `message` |
+| `ApiException` | The API answered with an error code (also a wrong key, HTTP 456, and the rate limit, HTTP 429 `TRY_AGAIN_LATER`). | `code`, `message` |
+| `NoNumberException` | `NO_NUMBER`: no number right now. Subclass of `ApiException`. | `code`, `message` |
 | `TransportException` | Network error, request timeout, or a body that is not JSON. | `status` (`null` without a response), `body` (first 500 chars) |
 | `WaitTimeoutException` | `waitCode` got no code within its `timeout`. | — |
 

@@ -39,7 +39,8 @@ public typealias MockRentTariff = ru.onlinesim.mock.MockRentTariff
  * @param balance starting balance, USD
  * @param prices number prices: country → service slug → USD
  * @param rentTariffs rent tariffs: country → tariff
- * @param guardInterval seconds an operation without SMS cannot be closed (`NO_COMPLETE_TZID`); 0 = never
+ * @param guardInterval seconds an operation without SMS, or an unconfirmed rent without any SMS, cannot be closed
+ *   (`NO_COMPLETE_TZID`); 0 = never
  */
 public class MockOnlineSim(
     public val apiKey: String = DEFAULT_API_KEY,
@@ -114,7 +115,7 @@ public class MockOnlineSim(
         endpoint: String? = null,
     ): Unit = java.failNextTransport(status, endpoint)
 
-    /** Sets the total balance, USD (what `getBalance` reports, frozen sums included). */
+    /** Sets the total balance, USD (what `getBalance` reports, the sums frozen by open operations and unconfirmed rents included). */
     public fun setBalance(usd: Double): Unit = java.setBalance(usd)
 
     /** The balance, USD, frozen sums included (like `getBalance`). */

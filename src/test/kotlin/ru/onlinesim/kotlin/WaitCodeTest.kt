@@ -102,6 +102,31 @@ class WaitCodeTest {
         }
 
     @Test
+    fun retriesTransientApiCodesUntilTheCode() =
+        runTest {
+            val f =
+                fake()
+                    .reply(429, """{"response":"TRY_AGAIN_LATER"}""")
+                    .json("""{"response":"ERROR_UNDEFINED"}""")
+                    .json("""{"response":"INTERVAL_CONCURRENT_REQUESTS_ERROR"}""")
+                    .answer("42")
+                    .ok()
+            assertEquals("42", f.client.numbers.waitCode(7))
+            assertEquals(listOf(0L, 5000L, 10_000L, 15_000L, 15_000L), f.times)
+        }
+
+    @Test
+    fun aTransientApiCodeUntilTheDeadlineIsATimeout() =
+        runTest {
+            val f = fake()
+            repeat(3) { f.json("""{"response":"TRY_AGAIN_LATER"}""") }
+            assertFailsWith<WaitTimeoutException> {
+                f.client.numbers.waitCode(7, interval = 5.seconds, timeout = 10.seconds)
+            }
+            assertEquals(listOf(0L, 5000L, 10_000L), f.times)
+        }
+
+    @Test
     fun raisesAnyApiExceptionAtOnce() =
         runTest {
             val f = fake().json("""{"response":"ERROR_NO_OPERATIONS"}""")
