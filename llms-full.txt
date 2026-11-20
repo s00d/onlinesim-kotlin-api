@@ -1,0 +1,668 @@
+# Changelog
+
+The full history is in [CHANGELOG.md](https://github.com/s00d/onlinesim-kotlin-api/blob/main/CHANGELOG.md){rel="&#x22;nofollow&#x22;"}.
+
+## 1.0.1
+
+- On `onlinesim-api` 2.1.1: fixed `Profile.number`/`country`, `paylist` kept when it arrives as a list, `RentSms.code` `"0"` for `notify` SMS, the current error messages.
+- `waitCode` retries `TRY_AGAIN_LATER` (rate limit), `ERROR_UNDEFINED` and `INTERVAL_CONCURRENT_REQUESTS_ERROR`.
+- Docs follow the current API: rent reservation and confirmation, `extend`/`close` rules, `ban` answer `"0"`, the available-balance formula, webhook fields.
+- `MockOnlineSim` follows the backend more closely: rent reservation and confirmation, `rent.close`/`rent.extend` answers, missing vs wrong key — see [Testing](https://s00d.github.io/onlinesim-kotlin-api/testing).
+
+## 1.0.0
+
+First release.
+
+- `ru.onlinesim:onlinesim-kotlin:1.0.0`, package `ru.onlinesim.kotlin`. Kotlin/JVM, Java 11+.
+- Suspend functions over the Java SDK `ru.onlinesim:onlinesim-api:2.1.0`: `client.numbers`, `client.rent`, `client.user`, `client.free`, with default arguments; blocking calls run on an injectable dispatcher (`Dispatchers.IO` by default).
+- `numbers.waitCode` as a coroutine: `delay` between polls, `kotlin.time.Duration` interval and timeout, `keepOpen`, `since`, `fullMessage`; cancellable, virtual time under `runTest`.
+- `parseWebhook`; the Java SDK's response types and exceptions re-exported as type aliases.
+- `MockOnlineSim` (`ru.onlinesim.kotlin.mock`): the Java SDK's offline fake with named options and `mock.client()` returning the Kotlin client — see [Testing](https://s00d.github.io/onlinesim-kotlin-api/testing).
+
+
+# Free numbers
+
+## list
+
+Countries, the numbers of the selected country and the SMS of the selected number, in one call.
+
+```kotlin
+suspend fun list(country: Int? = null, number: String? = null, page: Int? = null, count: Int? = null): FreeList
+```
+
+| Param     | Type      | Default        | Description                                                      |
+| --------- | --------- | -------------- | ---------------------------------------------------------------- |
+| `country` | `Int?`    | `44` (server)  | Country code; an unknown one falls back to the first available.  |
+| `number`  | `String?` | first number   | Number **without** the country code, as the keys of `numbers()`. |
+| `page`    | `Int?`    | `1`            | Page of `messages()`.                                            |
+| `count`   | `Int?`    | server default | SMS per page, 10–500.                                            |
+
+`null` parameters are not sent. `FreeList`:
+
+- `countries()`: `List<FreeList.Country>` — `country()`, `countryText()`, `countryOriginal()`
+- `numbers()`: `Map<String, FreeList.Phone>` keyed by the short number — `country()`, `countryOriginal()`, `fullNumber()`, `dataHumans()`, `isArchive()`
+- `messages()`: `FreeList.Messages`, a `Paginator<FreeList.Message>` plus `number()` and `country()`; a message has `id()`, `text()`, `inNumber()`, `myNumber()`, `code()` (`-` when no code was found), `createdAt()`, `dataHumans()`
+
+```kotlin
+val uk = client.free.list(country = 44)
+val first = uk.numbers().keys.firstOrNull()
+if (first != null) {
+    val page = client.free.list(country = 44, number = first, count = 20)
+    for (sms in page.messages().data()) println("${sms.inNumber()} ${sms.code()} ${sms.text()}")
+}
+```
+
+
+# Numbers
+
+An operation (`tzid`) is one ordered number. Order it with `get`/`getWithNumber`, read the SMS with `stateOne` or `waitCode`, finish it with `close` (or `ban`). Countries are phone codes (`7`, `44`, …), services are slugs (`google`, `vkcom`, …) as returned by `tariffs`. Every `country` parameter defaults to `7`.
+
+## price
+
+Price of one number, USD; `null` when the country has no price for the service.
+
+```kotlin
+suspend fun price(service: String, country: Int = 7): Double?
+```
+
+```kotlin
+val usd = client.numbers.price("google", 44)
+```
+
+Errors: `ApiException` `ERROR_NO_SERVICE`, `UNDEFINED_COUNTRY`.
+
+## get
+
+Order a number; returns the operation id. Freezes the price on the balance.
+
+```kotlin
+suspend fun get(service: String, country: Int = 7, reject: Collection<String>? = null): Long
+```
+
+| Param     | Type                  | Default      | Description                                     |
+| --------- | --------------------- | ------------ | ----------------------------------------------- |
+| `service` | `String`              | —            | Service slug.                                   |
+| `country` | `Int`                 | `7`          | Country code.                                   |
+| `reject`  | `Collection<String>?` | profile list | Number prefixes to skip, e.g. `listOf("4470")`. |
+
+```kotlin
+val tzid = client.numbers.get("google", 44, reject = listOf("4470"))
+```
+
+Errors: `NoNumberException`; `ApiException` `WARNING_LOW_BALANCE`, `ERROR_NO_SERVICE`, `UNDEFINED_COUNTRY`, `EXCEEDED_CONCURRENT_OPERATIONS`, `INTERVAL_CONCURRENT_REQUESTS_ERROR`, `TRY_AGAIN_LATER`.
+
+## getWithNumber
+
+Same as `get`, but returns the number right away.
+
+```kotlin
+suspend fun getWithNumber(service: String, country: Int = 7, reject: Collection<String>? = null): NumberOrder
+```
+
+`NumberOrder`: `tzid()`, `number()` (with `+`), `country()`, `time()` (seconds left), `service()`, `title()`, `guardIntervalRemainingSeconds()`.
+
+```kotlin
+val order = client.numbers.getWithNumber("google", 44)
+println("${order.tzid()} ${order.number()}")
+```
+
+Errors: as `get`.
+
+## state
+
+All operations of the account; an empty list when there are none.
+
+```kotlin
+suspend fun state(messageToCode: Boolean = true, orderBy: OrderBy = OrderBy.ASC, msgList: Boolean = false): List<Operation>
+```
+
+| Param           | Type      | Default | Description                                                       |
+| --------------- | --------- | ------- | ----------------------------------------------------------------- |
+| `messageToCode` | `Boolean` | `true`  | `msg()` is the code only; `false` — the full SMS text.            |
+| `orderBy`       | `OrderBy` | `ASC`   | Order of operations (`ASC`, `DESC`).                              |
+| `msgList`       | `Boolean` | `false` | All SMS in `msgList()` (`List<OperationSms>`) instead of `msg()`. |
+
+`Operation`: `tzid()`, `response()`, `number()`, `service()`, `country()`, `sum()`, `time()`, `msg()`, `msgList()`, `guardIntervalRemainingSeconds()`, ….
+`response()` is the state: `TZ_INPOOL` (number being assigned), `TZ_NUM_WAIT` (waiting for SMS), `TZ_NUM_ANSWER` (SMS arrived), `TZ_OVER_OK` (finished), `ERROR_NO_ITEMS` (failed), or `null` when the server sent no state (no number could be issued). `msg()` is `null` until the first SMS. The server caches answers for a few seconds.
+
+```kotlin
+for (op in client.numbers.state(orderBy = OrderBy.DESC)) {
+    println("${op.tzid()} ${op.response()} ${op.msg()}")
+}
+```
+
+## stateOne
+
+One operation.
+
+```kotlin
+suspend fun stateOne(tzid: Long, messageToCode: Boolean = true, msgList: Boolean = false): Operation
+```
+
+```kotlin
+val op = client.numbers.stateOne(tzid)
+if (op.response() == "TZ_NUM_ANSWER") println(op.msg())
+```
+
+Errors: `ApiException` `ERROR_NO_OPERATIONS` when the operation does not exist (any more).
+
+## waitCode
+
+Poll the operation until a code arrives, then close it and return the code. Suspends with `delay` between polls (no thread is blocked while waiting), so it is cancellable and runs on virtual time under `runTest`.
+
+```kotlin
+suspend fun waitCode(
+    tzid: Long,
+    interval: Duration = 5.seconds,
+    timeout: Duration = 10.minutes,
+    keepOpen: Boolean = false,
+    fullMessage: Boolean = false,
+    since: String? = null,
+): String
+```
+
+| Param         | Type       | Default | Description                                                          |
+| ------------- | ---------- | ------- | -------------------------------------------------------------------- |
+| `interval`    | `Duration` | 5 s     | Poll interval; `Duration.ZERO` polls back to back (with the mock).   |
+| `timeout`     | `Duration` | 10 min  | Give up after; one last poll happens at the deadline.                |
+| `keepOpen`    | `Boolean`  | `false` | Call `next(tzid)` instead of `close(tzid)`, to wait for another SMS. |
+| `fullMessage` | `Boolean`  | `false` | Return the full SMS text instead of the code.                        |
+| `since`       | `String?`  | `null`  | Ignore this value (the previous code).                               |
+
+Transient errors are retried until the timeout: `TransportException`, and `ApiException` `TRY_AGAIN_LATER` (the HTTP 429 rate limit), `ERROR_UNDEFINED` and `INTERVAL_CONCURRENT_REQUESTS_ERROR`. Any other `ApiException` is thrown at once.
+
+```kotlin
+import kotlin.time.Duration.Companion.minutes
+
+val first = client.numbers.waitCode(tzid, keepOpen = true)
+val second = client.numbers.waitCode(tzid, since = first, timeout = 5.minutes)
+```
+
+Errors: `WaitTimeoutException`; `ApiException` with code `TZ_OVER_OK` or `ERROR_NO_ITEMS` when the operation ended without a new code; any other non-transient `ApiException` from `stateOne`, and any `ApiException` from `close`/`next`.
+
+## next
+
+Switch the operation to its next SMS and keep it open (for services that send several SMS).
+
+```kotlin
+suspend fun next(tzid: Long)
+```
+
+```kotlin
+client.numbers.next(tzid)
+```
+
+## close
+
+Finish the operation. An operation without SMS can be closed only after its guard interval (`guardIntervalRemainingSeconds()`); every attempt locks the tzid for 5 s.
+
+```kotlin
+suspend fun close(tzid: Long)
+```
+
+```kotlin
+client.numbers.close(tzid)
+```
+
+Errors: `ApiException` `NO_COMPLETE_TZID`, `INTERVAL_CONCURRENT_REQUESTS_ERROR`, `ERROR_WRONG_TZID`.
+
+## ban
+
+Finish the operation and report the number as bad. Only before any SMS arrived.
+
+```kotlin
+suspend fun ban(tzid: Long)
+```
+
+```kotlin
+client.numbers.ban(tzid)
+```
+
+Errors: as `close`; `ApiException` with code `"0"` when the operation already has an SMS — nothing is changed then.
+
+## tariffs
+
+Services, prices and stock of every country, keyed by country code. No API key needed. The answer is large (a few MB); prefer `tariffsOne`.
+
+```kotlin
+suspend fun tariffs(): Map<String, CountryStat>
+```
+
+`CountryStat`: `name()`, `localeName()`, `position()`, `code()`, `other()`, `isNew()`, `enabled()`, `services()`; `services()` maps `service_<slug>` to `ServiceStat`: `count()` (`null` when unknown), `popular()`, `code()`, `price()`, `id()`, `service()`, `slug()`.
+
+```kotlin
+val all = client.numbers.tariffs()
+println("${all.size} countries")
+```
+
+## tariffsOne
+
+Services, prices and stock of one country.
+
+```kotlin
+suspend fun tariffsOne(country: Int = 7): CountryStat
+```
+
+```kotlin
+val uk = client.numbers.tariffsOne(44)
+for (s in uk.services().values) println("${s.slug()} ${s.price()} ${s.count()}")
+```
+
+Errors: `ApiException` `NO_COUNTRY`.
+
+
+# Rent
+
+A rent keeps a number for `days` days. Its SMS come in `RentItem.messages()`, newest first.
+
+`get` reserves the price (it shows in `zbalance()`): the rent starts with `status()` `0` and `checked()` `false` and waits up to 20 minutes for its first SMS. The first SMS that is not a `notify` notice confirms it (`status()` `1`) and charges the price; without one the rent closes and the reservation is released. Some countries (`confirm()` in `tariffs`, e.g. US numbers) are confirmed and charged at once.
+
+`RentItem`: `tzid()`, `status()`, `number()`, `country()`, `sum()`, `days()`, `hours()`, `time()`, `timeSeconds()`, `extension()`, `extend()`, `messages()`, `startTime()`, `stopTime()`, `dayExtend()`, … —
+`sum()` is the cost in USD incl. extensions (a `Double`; the server sends a number or, in `state`, a decimal string), `time()` minutes left, `timeSeconds()` seconds left,
+`extension()` `0` not extendable / `1` extendable / `2` auto-extension, `extend()` maps days to the extension price (empty when not extendable),
+`messages()` is `List<RentSms>`: `id()`, `service()`, `text()`, `code()`, `createdAt()` — `code()` is `""` when no code was found and `"0"` for a `notify` SMS (a prohibited sender; the server sends the number `0`).
+
+## get
+
+Rent a number. The price is reserved; the first SMS charges it.
+
+```kotlin
+suspend fun get(country: Int = 7, days: Int = 1, extension: Boolean = true): RentItem
+```
+
+| Param       | Type      | Default | Description                                     |
+| ----------- | --------- | ------- | ----------------------------------------------- |
+| `country`   | `Int`     | `7`     | Country code.                                   |
+| `days`      | `Int`     | `1`     | One of the tariff's `days()` keys.              |
+| `extension` | `Boolean` | `true`  | `false` makes the rent non-extendable for good. |
+
+```kotlin
+val rent = client.rent.get(7, days = 7)
+println("${rent.tzid()} ${rent.number()} ${rent.sum()}")
+```
+
+Errors: `NoNumberException`; `ApiException` `UNDEFINED_DAYS`, `UNDEFINED_COUNTRY`, `WARNING_LOW_BALANCE`, `INTERVAL_CONCURRENT_REQUESTS_ERROR`, `TRY_AGAIN_LATER`.
+
+## state
+
+All rents of the account.
+
+```kotlin
+suspend fun state(): List<RentItem>
+```
+
+```kotlin
+for (rent in client.rent.state()) {
+    println("${rent.number()} ${rent.messages().firstOrNull()?.code() ?: "-"}")
+}
+```
+
+## stateOne
+
+One rent.
+
+```kotlin
+suspend fun stateOne(tzid: Long): RentItem
+```
+
+```kotlin
+val messages = client.rent.stateOne(tzid).messages()
+```
+
+Errors: `ApiException` `ERROR_NO_OPERATIONS` for an unknown tzid.
+
+## extend
+
+Extend a rent by `days` days and charge the balance at once. Only confirmed rents (`status()` `1` or `4`) created with `extension = true`.
+
+```kotlin
+suspend fun extend(tzid: Long, days: Int = 1): RentItem
+```
+
+```kotlin
+val rent = client.rent.extend(tzid, days = 3)
+println(rent.stopTime())
+```
+
+Errors: `ApiException` `TRY_AGAIN_LATER` (unknown tzid, not confirmed yet or closed, not extendable, unknown period, a repeat within 10 s), `WARNING_LOW_BALANCE`.
+
+## close
+
+Return the number before the period ends. A rent that is not confirmed yet (`status()` `0`) and has no SMS can be closed only after 120 s; then, or with only `notify` SMS, the reservation is released. With a real SMS the rent is confirmed (charged) and closed. A confirmed rent closes without a refund. US numbers cannot be closed early.
+
+```kotlin
+suspend fun close(tzid: Long)
+```
+
+```kotlin
+client.rent.close(tzid)
+```
+
+Errors: `ApiException` `ERROR_NO_OPERATIONS`, `NO_COMPLETE_TZID`, `NO_CLOSE_RENT_US`, `TRY_AGAIN_LATER`.
+
+## tariffs
+
+Rent prices of every country, keyed by country code. No API key needed.
+
+```kotlin
+suspend fun tariffs(): Map<String, RentTariff>
+```
+
+`RentTariff`: `code()`, `name()`, `enabled()`, `isNew()`, `position()`, `extend()`, `confirm()`, `days()`, `count()`, `extCounts()` — `days()` maps rent days to the price in USD, `count()` to the numbers available.
+
+```kotlin
+val tariffs = client.rent.tariffs()
+```
+
+## tariffsOne
+
+Rent prices of one country.
+
+```kotlin
+suspend fun tariffsOne(country: Int = 7): RentTariff
+```
+
+```kotlin
+val days = client.rent.tariffsOne(7).days()
+println(days["7"]) // price of 7 days
+```
+
+Errors: `ApiException` `NO_COUNTRY` for a country without rent.
+
+
+# Testing
+
+`MockOnlineSim` (package `ru.onlinesim.kotlin.mock`) is an in-process fake of the OnlineSim API. It is the Java SDK's [`MockOnlineSim`](https://s00d.github.io/onlinesim-java-api/testing){rel="&#x22;nofollow&#x22;"} with a Kotlin face: named options, `mock.client()` returning the Kotlin client. It is a `Transport` that answers like the real backend — same shapes, same error codes, HTTP 456 for a wrong key and HTTP 200 `ERROR_WRONG_KEY` for a missing one — and keeps a balance, operations and rents. Your code talks to a normal `OnlineSim` client, so nothing in it changes for tests. It is deterministic: no randomness, no clock, numbers and ids come from a counter. Thread-safe.
+
+## Setup
+
+```kotlin
+import ru.onlinesim.kotlin.mock.MockOnlineSim
+
+val mock = MockOnlineSim(balance = 10.0)
+val client = mock.client() // an OnlineSim wired to the mock
+```
+
+```kotlin
+MockOnlineSim(
+    apiKey: String = "mock-key",
+    balance: Double = 100.0,
+    prices: Map<Int, Map<String, Double>> = /* see below */,
+    rentTariffs: Map<Int, MockRentTariff> = /* see below */,
+    guardInterval: Int = 0,
+)
+```
+
+| Option          | Default                                                                         | Description                                                                                                     |
+| --------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `apiKey`        | `"mock-key"`                                                                    | Key the mock accepts. `mock.client()` uses it; `mock.client(apiKey = "x")` tests a wrong key.                   |
+| `balance`       | `100.0`                                                                         | Starting balance, USD.                                                                                          |
+| `prices`        | `{7: {vkcom: 0.5, telegram: 1.2, google: 0.3}, 44: {google: 0.2, vkcom: 0.36}}` | Number prices; replaces the defaults. Also feeds `numbers.tariffs()`.                                           |
+| `rentTariffs`   | `{7: MockRentTariff({1: 1.0, 3: 2.5, 7: 5.0}, extend = true)}`                  | Rent prices; `extend = false` makes rents of that country non-extendable.                                       |
+| `guardInterval` | `0`                                                                             | `> 0`: an operation without SMS, or an unconfirmed rent without any SMS, cannot be closed (`NO_COMPLETE_TZID`). |
+
+`mock.client(apiKey, lang, devId, timeout, dispatcher)` takes the usual [client options](https://s00d.github.io/onlinesim-kotlin-api/#client-options); the transport is always the mock's. To build the client yourself, pass `mock.transport`; any `baseUrl` works:
+
+```kotlin
+import ru.onlinesim.kotlin.OnlineSim
+import ru.onlinesim.kotlin.mock.MockOnlineSim
+
+val mock = MockOnlineSim()
+val client = OnlineSim("mock-key", transport = mock.transport)
+```
+
+## A full example
+
+Order a number, let an SMS arrive while `waitCode` polls, check the code and the money. Under `runTest`, give the client the test dispatcher: then the mock calls run on the test scheduler and `waitCode`'s `delay` uses virtual time — the 5 s interval passes instantly, and nothing races the timeout. `addSmsAfter` delivers the SMS after a number of polls, so the test needs no clock at all.
+
+```kotlin
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
+import ru.onlinesim.kotlin.mock.MockOnlineSim
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class ReceiveCodeTest {
+    @Test
+    fun receivesTheCode() = runTest {
+        val mock = MockOnlineSim(balance = 10.0)
+        val client = mock.client(dispatcher = StandardTestDispatcher(testScheduler))
+
+        val order = client.numbers.getWithNumber("google", 44)
+        assertEquals("+44900000001", order.number())
+
+        mock.addSmsAfter(order.tzid(), "Your Google code: 123-456", 2) // the third poll sees it
+        val code = client.numbers.waitCode(order.tzid()) // 10 s of virtual time
+
+        assertEquals("123456", code)
+        assertEquals("TZ_OVER_OK", mock.operations()[0].status()) // waitCode closed it
+        assertEquals(9.8, mock.balance()) // the price is spent once an SMS arrived
+    }
+}
+```
+
+Outside `runTest` (a `main`, `runBlocking`), `waitCode(tzid, interval = Duration.ZERO)` polls back to back with no waiting.
+
+The `msg` of an operation is the code by default: the first run of 4–8 digits, with spaces and dashes between digits removed (`123-456` → `123456`); a text without such a run comes back whole. `messageToCode = false` (or `fullMessage = true` in `waitCode`) gives the full text.
+
+## Errors
+
+`failNext(code)` makes the next request answer `{"response": code}` — the client turns it into `ApiException` (or `NoNumberException`) exactly as for the real server. Pass `endpoint` to fail only that endpoint. `failNextTransport()` makes the next request fail with a non-JSON HTTP 502 (`TransportException`).
+
+```kotlin
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
+import ru.onlinesim.kotlin.NoNumberException
+import ru.onlinesim.kotlin.TransportException
+import ru.onlinesim.kotlin.mock.MockOnlineSim
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+
+class FailuresTest {
+    @Test
+    fun handlesAMissingNumberAndANetworkHiccup() = runTest {
+        val mock = MockOnlineSim()
+        val client = mock.client(dispatcher = StandardTestDispatcher(testScheduler))
+
+        mock.failNext("NO_NUMBER", endpoint = "getNum.php")
+        assertFailsWith<NoNumberException> { client.numbers.get("google") }
+
+        mock.failNextTransport(status = 503)
+        assertFailsWith<TransportException> { client.user.balance() }
+
+        assertEquals(100.0, client.user.balance().balance()) // one-shot
+    }
+}
+```
+
+The state itself produces the real error codes too: `WARNING_LOW_BALANCE` when the balance is short, `NO_NUMBER` when `reject` matches the next number, `UNDEFINED_COUNTRY` / `ERROR_NO_SERVICE` for unknown prices, `ERROR_WRONG_TZID` for an unknown or closed operation (`next` too; `ERROR_NO_TZID` for tzid `0`), `UNDEFINED_COUNTRY` / `UNDEFINED_DAYS` for an unknown rent country or period, `TRY_AGAIN_LATER` for every refused `rent.extend`, `ERROR_NO_OPERATIONS` for an unknown rent in `rent.close`, `ERROR_WRONG_KEY` for a wrong key (HTTP 456) or no key (HTTP 200).
+
+## Inspecting requests
+
+`mock.requests()` lists every request received as `MockRequest`: `method()`, `path()` (relative to `/api/`), `query()` (decoded, in the order sent) and `body()` (the JSON of a POST as sent, `null` for a GET).
+
+```kotlin
+import kotlinx.coroutines.test.runTest
+import ru.onlinesim.kotlin.mock.MockOnlineSim
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class RejectTest {
+    @Test
+    fun sendsRejectAsACommaList() = runTest {
+        val mock = MockOnlineSim()
+        mock.client().numbers.get("google", 44, reject = listOf("4470", "4471"))
+
+        val req = mock.requests()[0]
+        assertEquals("getNum.php", req.path())
+        assertEquals(mapOf("service" to "google", "country" to "44", "reject" to "4470,4471", "lang" to "en"), req.query())
+    }
+}
+```
+
+## Control API
+
+| Member                                             | Description                                                                                                                               |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `client(apiKey, lang, devId, timeout, dispatcher)` | A normal `OnlineSim` wired to the mock; every argument has a default.                                                                     |
+| `transport`                                        | The fake `Transport`.                                                                                                                     |
+| `addSms(tzid, text, service = null)`               | An SMS arrives now at a number operation or a rent (detected by `tzid`). Throws `IllegalStateException` for an unknown or closed one.     |
+| `addSmsAfter(tzid, text, polls, service = null)`   | The SMS arrives after `polls` state requests for `tzid` (`numbers.state`/`stateOne`, `rent.state`/`stateOne`).                            |
+| `failNext(code, endpoint = null)`                  | The next request (to `endpoint` only, e.g. `"getNum.php"`) answers `{"response": code}`.                                                  |
+| `failNextTransport(status = 502, endpoint = null)` | The next request fails with a non-JSON body and HTTP `status`.                                                                            |
+| `setBalance(usd)` / `balance()`                    | Set / read the total balance, USD (it includes the part frozen by open operations and unconfirmed rents, as `user.balance()` reports it). |
+| `operations()` / `rents()`                         | Snapshots of the current number operations (`MockOperation`) / open rents (`MockRent`), for assertions.                                   |
+| `requests()`                                       | Log of the requests received (`MockRequest`).                                                                                             |
+| `reset()`                                          | Back to the constructor's state.                                                                                                          |
+| `java`                                             | The underlying Java `ru.onlinesim.mock.MockOnlineSim`.                                                                                    |
+
+## What the mock does
+
+- **Numbers**: `get` freezes the price; `close` after an SMS spends it, `close` without one refunds it; `ban` after an SMS answers `"0"`, like the server. Numbers are `+<country>9000000NN`, ids count from 1. `next` switches to the following SMS. The operation's `time` stays at 1200 s — there is no clock.
+- **Rent**: `get` reserves the price (`status()` `0`, `checked()` `false`) and keeps the `extension` flag; the first SMS that is not `notify` confirms the rent (`status()` `1`, also `MockRent.status()`) and charges it — `addSms(tzid, text, service = "notify")` adds a notice with `code` `"0"` that confirms nothing. `extend` works on a confirmed rent and charges at once. `close` releases the reservation of an unconfirmed rent and gives no refund for a confirmed one. `sum` is a number in `get`/`extend` and a decimal string on the wire of `state`, like the server. SMS appear in `messages()`, newest first.
+- **User**: `balance` (frozen part included), a fixed profile, `setWebhookUrl` accepts any `scheme://…` URL (`VALIDATION_ERROR` otherwise), `webhookLogs` lists the deliveries the mock *recorded* when an SMS arrived while a webhook URL was set — it makes no HTTP call; their `params` follow the real payload (`code` `""` without a code, rent `number` in digits without `+`, rent `timeLeft` in minutes). `paymentHistory` has no orders.
+- **Free**: `free.list()` returns two fixed countries (44 first) with one number and a few SMS each; `count` is clamped to 10..500.
+- Not imitated: anything that needs real time — the 5 s lock after `setOperationOk` (`INTERVAL_CONCURRENT_REQUESTS_ERROR`), the 10 s lock of `rent.extend`, the 120 s before an unconfirmed rent may be closed and its 20-minute wait for the first SMS. `guardInterval > 0` stands in for "too early to close".
+
+
+# User
+
+## balance
+
+Balance in USD.
+
+```kotlin
+suspend fun balance(): Balance
+```
+
+`Balance`: `balance()` includes the sum frozen by numbers and unconfirmed rents in progress (`zbalance()`, which may be negative): available = `balance() − max(zbalance(), 0)`. `income()` is the partner income (`null` when not sent). The server caches the answer for 60 s.
+
+```kotlin
+val b = client.user.balance()
+val available = b.balance() - maxOf(b.zbalance(), 0.0)
+```
+
+Errors: `ApiException` `ERROR_WRONG_KEY`, `ACCOUNT_BLOCKED`, `API_ACCESS_DISABLED`, `API_ACCESS_IP`.
+
+## profile
+
+The account profile.
+
+```kotlin
+suspend fun profile(): Profile
+```
+
+`Profile`: `id()`, `name()`, `username()`, `email()`, `locale()`, `currency()`, `numberCountry()`, `numberReject()` (`List<String>`), `webhookUrl()`, `apiAccess()` (`true`, `false` when API access is disabled in the profile, or a map of allowed IPs, as a Gson `JsonElement`), `number()` (`Long`, `null` when no phone is linked), `country()` (`String` or `null`), ….
+
+```kotlin
+val p = client.user.profile()
+println("${p.email()} ${p.webhookUrl()}")
+```
+
+## paymentHistory
+
+Top-up orders (paginated, newest first) and the available payment methods.
+
+```kotlin
+suspend fun paymentHistory(page: Int = 1): PaymentHistory
+```
+
+`PaymentHistory`: `orders()` (`Paginator<PaymentOrder>`), `paylist()`, `domains()`, `forms()`, `currency()`. `PaymentOrder.sum()` stays a decimal string (`"89.00"`); `currency()` and `formText()` may be `null`. `paylist()` maps a group id to its payment methods; when the ids are 0, 1, 2… the server sends a JSON array, whose items are keyed `"0"`, `"1"`, ….
+`Paginator<T>`: `data()`, `currentPage()`, `lastPage()`, `perPage()`, `total()`, `from()`, `to()`, `nextPageUrl()`, ….
+
+```kotlin
+val orders = client.user.paymentHistory().orders()
+println("${orders.total()} orders, page ${orders.currentPage()}/${orders.lastPage()}")
+```
+
+## setWebhookUrl
+
+Set the URL that receives SMS webhooks (see [Webhooks](https://s00d.github.io/onlinesim-kotlin-api/webhooks)).
+
+```kotlin
+suspend fun setWebhookUrl(url: String)
+```
+
+```kotlin
+client.user.setWebhookUrl("https://example.com/onlinesim-hook")
+```
+
+Errors: `ApiException` `VALIDATION_ERROR` for an invalid URL; `message` holds the server's field messages.
+
+## clearWebhookUrl
+
+Remove the webhook URL, also from operations in progress.
+
+```kotlin
+suspend fun clearWebhookUrl()
+```
+
+```kotlin
+client.user.clearWebhookUrl()
+```
+
+## webhookLogs
+
+Webhook delivery log, newest first, 10 per page.
+
+```kotlin
+suspend fun webhookLogs(page: Int = 1): Paginator<WebhookLog>
+```
+
+`WebhookLog`: `id()`, `userId()`, `webhookUrl()`, `type()`, `params()`, `status()`, `error()`, `createdAt()`, `updatedAt()` — `type()` is `receiving_sms` or `rent_sms`, `status()` is `success`, `fail` or `pending`, `params()` the payload that was sent (`WebhookPayload`).
+
+```kotlin
+for (log in client.user.webhookLogs().data()) {
+    println("${log.createdAt()} ${log.status()} ${log.error()}")
+}
+```
+
+
+# Webhooks
+
+Set a URL with [`client.user.setWebhookUrl`](https://s00d.github.io/onlinesim-kotlin-api/user#setwebhookurl). For each SMS the server POSTs a JSON body to it: `webhook_type` `receiving_sms` for numbers, `rent_sms` for rents. Delivery attempts are listed by [`client.user.webhookLogs`](https://s00d.github.io/onlinesim-kotlin-api/user#webhooklogs).
+
+## parseWebhook
+
+Parse an inbound webhook body. A top-level function (not `suspend`): no client needed.
+
+```kotlin
+fun parseWebhook(json: String): WebhookPayload
+```
+
+Lenient: numeric fields may arrive as strings, missing or malformed fields become `null`, unknown fields are dropped. It throws `OnlineSimException` only when the input is not a JSON object.
+
+```kotlin
+import com.sun.net.httpserver.HttpServer
+import java.net.InetSocketAddress
+import ru.onlinesim.kotlin.parseWebhook
+
+fun main() {
+    val server = HttpServer.create(InetSocketAddress(8080), 0)
+    server.createContext("/onlinesim-hook") { exchange ->
+        val hook = parseWebhook(exchange.requestBody.readBytes().decodeToString())
+        if (hook.webhookType() == "receiving_sms") println("${hook.operationId()} ${hook.code()}")
+        exchange.sendResponseHeaders(200, -1)
+        exchange.close()
+    }
+    server.start()
+}
+```
+
+## Payload fields
+
+| Accessor        | Type      | Description                                                                                                                  |
+| --------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `webhookType()` | `String?` | `receiving_sms`, `rent_sms`, or `null` for anything else.                                                                    |
+| `operationId()` | `Long?`   | `tzid` of the operation or rent.                                                                                             |
+| `userId()`      | `Long?`   | Account id.                                                                                                                  |
+| `countryCode()` | `Int?`    | Country code of the number.                                                                                                  |
+| `number()`      | `String?` | Numbers: `+` and the full number (`+79001234567`), or `hidden`. Rent: the full number in digits without `+` (`79001234567`). |
+| `sender()`      | `String?` | Sender of the SMS, e.g. `VK`.                                                                                                |
+| `message()`     | `String?` | Full SMS text.                                                                                                               |
+| `code()`        | `String?` | Code extracted from the SMS; `""` when none was found.                                                                       |
+| `timeStart()`   | `String?` | Numbers: when the operation was ordered. Rent: when the SMS arrived. `YYYY-MM-DD HH:MM:SS`.                                  |
+| `timeLeft()`    | `Long?`   | Time left: seconds for numbers, minutes for rent.                                                                            |
+
+Every accessor returns `null` when the field is missing or malformed.
