@@ -13,11 +13,11 @@ Balance in USD.
 suspend fun balance(): Balance
 ```
 
-`Balance`: `balance()` includes the sum frozen by numbers in progress (`zbalance()`): available = `balance() − zbalance()`. `income()` is the partner income (`null` when not sent). The server caches the answer for 60 s.
+`Balance`: `balance()` includes the sum frozen by numbers and unconfirmed rents in progress (`zbalance()`, which may be negative): available = `balance() − max(zbalance(), 0)`. `income()` is the partner income (`null` when not sent). The server caches the answer for 60 s.
 
 ```kotlin
 val b = client.user.balance()
-val available = b.balance() - b.zbalance()
+val available = b.balance() - maxOf(b.zbalance(), 0.0)
 ```
 
 Errors: `ApiException` `ERROR_WRONG_KEY`, `ACCOUNT_BLOCKED`, `API_ACCESS_DISABLED`, `API_ACCESS_IP`.

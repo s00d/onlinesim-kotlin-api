@@ -88,6 +88,13 @@ class ClientTest {
         }
 
     @Test
+    fun mapsHttp429RateLimitToApiExceptionNotTransport() =
+        runTest {
+            val f = Fake().reply(429, """{"response":"TRY_AGAIN_LATER"}""")
+            assertEquals("TRY_AGAIN_LATER", assertFailsWith<ApiException> { f.client.user.balance() }.code)
+        }
+
+    @Test
     fun mapsAValidationObjectToValidationError() =
         runTest {
             val f = Fake().json("""{"response":{"webhook_url":["The webhook url must be a valid URL."]}}""")

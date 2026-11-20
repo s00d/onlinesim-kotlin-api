@@ -157,3 +157,5 @@ class RejectTest {
 - **User**: `balance` (frozen part included), a fixed profile, `setWebhookUrl` validates `http(s)` URLs (`VALIDATION_ERROR` otherwise), `webhookLogs` lists the deliveries the mock *recorded* when an SMS arrived while a webhook URL was set — it makes no HTTP call. `paymentHistory` is empty.
 - **Free**: `free.list()` returns two fixed countries with one number and a few SMS each.
 - Not imitated: the server's 5 s lock after `setOperationOk` (`INTERVAL_CONCURRENT_REQUESTS_ERROR`) and anything else that needs real time.
+
+> This page describes the mock of `onlinesim-api` 2.1.0, the version this release depends on. Some of it is simpler than the real backend: the backend's `rent.get` only reserves the price (`status` `0`) and the first SMS that is not `notify` confirms and charges it, `rent.close` releases the reservation of an unconfirmed rent and gives no refund for a confirmed one, every refused `rent.extend` is `TRY_AGAIN_LATER`, and a missing key is HTTP 200 `ERROR_WRONG_KEY` (456 only for a wrong one). The Java SDK's next patch release (2.1.1) brings the mock in line with that; this SDK will switch to it in a following release.

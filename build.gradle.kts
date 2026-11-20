@@ -13,7 +13,7 @@ plugins {
 }
 
 group = "ru.onlinesim"
-version = "1.0.0"
+version = "1.0.1"
 description = "Kotlin coroutines client for the OnlineSim API: SMS numbers, rent, account and free numbers."
 
 repositories {

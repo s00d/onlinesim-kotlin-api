@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.1
+
+Aligned with the regenerated backend API spec. Still on `ru.onlinesim:onlinesim-api:2.1.0`; moving to 2.1.1 (model and mock fixes) follows its release.
+
+### Fixed
+
+- `numbers.waitCode` retries `ApiException` `TRY_AGAIN_LATER` (HTTP 429 rate limit), `ERROR_UNDEFINED` and `INTERVAL_CONCURRENT_REQUESTS_ERROR` until its timeout instead of throwing at once.
+- KDoc and docs: rent reservation (`get` reserves, the first non-`notify` SMS charges), `sum` incl. extensions, `extend`/`close` rules and errors, `ban` answer `"0"`, available = balance − max(zbalance, 0), HTTP 429 as `ApiException`, `NoNumberException` only for `NO_NUMBER`, webhook `number`/`code`/`time_start`/`time_left`, the `waitCode` retry policy, a note on the mock's 2.1.0 behaviour.
+
 ## 1.0.0
 
 First release.

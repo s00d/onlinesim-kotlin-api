@@ -7,6 +7,11 @@ navigation:
 
 The full history is in [CHANGELOG.md](https://github.com/s00d/onlinesim-kotlin-api/blob/main/CHANGELOG.md).
 
+## 1.0.1
+
+- `waitCode` retries `TRY_AGAIN_LATER` (rate limit), `ERROR_UNDEFINED` and `INTERVAL_CONCURRENT_REQUESTS_ERROR`.
+- Docs follow the current API: rent reservation and confirmation, `extend`/`close` rules, `ban` answer `"0"`, the available-balance formula, webhook fields.
+
 ## 1.0.0
 
 First release.

@@ -119,7 +119,7 @@ suspend fun waitCode(
 | `fullMessage` | `Boolean` | `false` | Return the full SMS text instead of the code. |
 | `since` | `String?` | `null` | Ignore this value (the previous code). |
 
-A transient `TransportException` is retried until the timeout; any `ApiException` is thrown at once.
+Transient errors are retried until the timeout: `TransportException`, and `ApiException` `TRY_AGAIN_LATER` (the HTTP 429 rate limit), `ERROR_UNDEFINED` and `INTERVAL_CONCURRENT_REQUESTS_ERROR`. Any other `ApiException` is thrown at once.
 
 ```kotlin
 import kotlin.time.Duration.Companion.minutes
@@ -128,7 +128,7 @@ val first = client.numbers.waitCode(tzid, keepOpen = true)
 val second = client.numbers.waitCode(tzid, since = first, timeout = 5.minutes)
 ```
 
-Errors: `WaitTimeoutException`; `ApiException` with code `TZ_OVER_OK` or `ERROR_NO_ITEMS` when the operation ended without a new code; any other `ApiException` from `stateOne`/`close`/`next`.
+Errors: `WaitTimeoutException`; `ApiException` with code `TZ_OVER_OK` or `ERROR_NO_ITEMS` when the operation ended without a new code; any other non-transient `ApiException` from `stateOne`, and any `ApiException` from `close`/`next`.
 
 ## next
 
@@ -168,7 +168,7 @@ suspend fun ban(tzid: Long)
 client.numbers.ban(tzid)
 ```
 
-Errors: as `close`.
+Errors: as `close`; `ApiException` with code `"0"` when the operation already has an SMS — nothing is changed then.
 
 ## tariffs
 

@@ -5,7 +5,7 @@ public class UserApi internal constructor(
     private val java: ru.onlinesim.UserApi,
     private val io: Io,
 ) {
-    /** Balance, USD; `balance()` includes the frozen `zbalance()`. */
+    /** Balance, USD; `balance()` includes the frozen `zbalance()`: available = `balance() - max(zbalance(), 0)`. */
     public suspend fun balance(): Balance = io { java.balance() }
 
     /** The account profile. */
