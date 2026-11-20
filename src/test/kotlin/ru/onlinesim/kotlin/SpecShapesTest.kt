@@ -41,6 +41,32 @@ class SpecShapesTest {
         }
 
     @Test
+    fun profileNumberIsALongAndCountryAString() =
+        runTest {
+            val p =
+                Fake()
+                    .json("""{"response":1,"profile":{"id":1,"number":79001112233,"country":"RU"}}""")
+                    .client.user
+                    .profile()
+            assertEquals(79001112233L, p.number())
+            assertEquals("RU", p.country())
+        }
+
+    @Test
+    fun aPaylistSentAsAJsonArrayIsKeyedByIndex() =
+        runTest {
+            val h =
+                Fake()
+                    .json(
+                        """{"response":1,"orders":{"data":[],"current_page":1,"last_page":1,"total":0},""" +
+                            """"paylist":[{"id":"a"},{"id":"b"}]}""",
+                    ).client.user
+                    .paymentHistory()
+            assertEquals(listOf("0", "1"), h.paylist().keys.toList())
+            assertEquals("b", h.paylist()["1"]!!.asJsonObject["id"].asString)
+        }
+
+    @Test
     fun nullablePaymentOrderAndFreeCountryFields() =
         runTest {
             val f =

@@ -73,7 +73,7 @@ suspend fun state(messageToCode: Boolean = true, orderBy: OrderBy = OrderBy.ASC,
 | `msgList` | `Boolean` | `false` | All SMS in `msgList()` (`List<OperationSms>`) instead of `msg()`. |
 
 `Operation`: `tzid()`, `response()`, `number()`, `service()`, `country()`, `sum()`, `time()`, `msg()`, `msgList()`, `guardIntervalRemainingSeconds()`, ….
-`response()` is the state: `TZ_INPOOL` (number being assigned), `TZ_NUM_WAIT` (waiting for SMS), `TZ_NUM_ANSWER` (SMS arrived), `TZ_OVER_OK` (finished), `ERROR_NO_ITEMS` (failed). `msg()` is `null` until the first SMS. The server caches answers for a few seconds.
+`response()` is the state: `TZ_INPOOL` (number being assigned), `TZ_NUM_WAIT` (waiting for SMS), `TZ_NUM_ANSWER` (SMS arrived), `TZ_OVER_OK` (finished), `ERROR_NO_ITEMS` (failed), or `null` when the server sent no state (no number could be issued). `msg()` is `null` until the first SMS. The server caches answers for a few seconds.
 
 ```kotlin
 for (op in client.numbers.state(orderBy = OrderBy.DESC)) {

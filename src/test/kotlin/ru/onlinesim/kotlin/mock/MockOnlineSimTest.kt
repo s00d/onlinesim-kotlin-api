@@ -9,6 +9,7 @@ import ru.onlinesim.kotlin.NoNumberException
 import ru.onlinesim.kotlin.OnlineSim
 import ru.onlinesim.kotlin.OrderBy
 import ru.onlinesim.kotlin.TransportException
+import ru.onlinesim.kotlin.TransportRequest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -24,6 +25,17 @@ class MockOnlineSimTest {
         apiKey: String? = mock.apiKey,
     ) = mock.client(apiKey = apiKey, dispatcher = StandardTestDispatcher(testScheduler))
 
+    private fun request(
+        path: String,
+        key: String?,
+    ) = TransportRequest(
+        "GET",
+        java.net.URI.create(MockOnlineSim.MOCK_BASE_URL + path),
+        if (key == null) emptyMap() else mapOf("Authorization" to "Bearer $key"),
+        null,
+        java.time.Duration.ofSeconds(1),
+    )
+
     private suspend fun code(call: suspend () -> Unit) = assertFailsWith<ApiException> { call() }.code
 
     @Test
@@ -31,6 +43,10 @@ class MockOnlineSimTest {
         runTest {
             val mock = MockOnlineSim(apiKey = "secret")
             assertEquals("ERROR_WRONG_KEY", code { client(mock, "nope").user.balance() })
+            // A sent key is checked on public endpoints too.
+            assertEquals("ERROR_WRONG_KEY", code { client(mock, "nope").numbers.tariffsOne(44) })
+            assertEquals(456, mock.transport.send(request("getBalance.php", "nope")).status())
+            assertEquals(200, mock.transport.send(request("getBalance.php", null)).status()) // missing key: HTTP 200
             val anonymous = client(mock, apiKey = null)
             assertEquals("ERROR_WRONG_KEY", code { anonymous.user.balance() })
             assertEquals(44, anonymous.numbers.tariffsOne(44).code())
@@ -160,8 +176,21 @@ class MockOnlineSimTest {
             val mock = MockOnlineSim(balance = 10.0)
             val client = client(mock)
             val rent = client.rent.get(days = 3)
-            assertEquals(7.5, mock.balance())
+            assertEquals(0, rent.status()) // reserved, not charged yet
+            assertEquals(2.5, client.user.balance().zbalance())
+            assertEquals("TRY_AGAIN_LATER", code { client.rent.extend(rent.tzid()) }) // not confirmed
+            mock.addSms(rent.tzid(), "Blocked sender", service = "notify")
+            assertEquals(
+                "0",
+                client.rent
+                    .stateOne(rent.tzid())
+                    .messages()[0]
+                    .code(),
+            )
+            assertEquals(0, mock.rents()[0].status()) // a notify SMS confirms nothing
             mock.addSms(rent.tzid(), "Bank: 777 888")
+            assertEquals(1, mock.rents()[0].status())
+            assertEquals(7.5, mock.balance())
             assertEquals(
                 "777888",
                 client.rent
@@ -173,6 +202,20 @@ class MockOnlineSimTest {
             assertEquals(listOf(rent.tzid()), mock.rents().map { it.tzid() })
             client.rent.close(rent.tzid())
             assertTrue(mock.rents().isEmpty())
+            assertEquals(6.5, mock.balance()) // a confirmed rent: no refund
+            assertEquals("ERROR_NO_OPERATIONS", code { client.rent.close(rent.tzid()) })
+            assertEquals("UNDEFINED_COUNTRY", code { client.rent.get(country = 999) })
+        }
+
+    @Test
+    fun closingAnUnconfirmedRentReleasesTheReservation() =
+        runTest {
+            val mock = MockOnlineSim(balance = 10.0)
+            val client = client(mock)
+            val rent = client.rent.get()
+            client.rent.close(rent.tzid())
+            assertEquals(10.0, mock.balance())
+            assertEquals(0.0, client.user.balance().zbalance())
         }
 
     @Test
@@ -180,7 +223,7 @@ class MockOnlineSimTest {
         runTest {
             val mock = MockOnlineSim()
             val client = client(mock)
-            assertEquals("VALIDATION_ERROR", code { client.user.setWebhookUrl("ftp://x") })
+            assertEquals("VALIDATION_ERROR", code { client.user.setWebhookUrl("not a url") })
             client.user.setWebhookUrl("https://example.com/hook")
             val tzid = client.numbers.get("google", 44)
             mock.addSms(tzid, "code 1234")

@@ -22,7 +22,7 @@ repositories {
 
 dependencies {
     // The Java SDK does the HTTP, parsing and the mock; its types are re-exported, so it is `api`.
-    api("ru.onlinesim:onlinesim-api:2.1.0")
+    api("ru.onlinesim:onlinesim-api:2.1.1")
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 
     testImplementation(platform("org.junit:junit-bom:6.1.3"))

@@ -9,8 +9,10 @@ The full history is in [CHANGELOG.md](https://github.com/s00d/onlinesim-kotlin-a
 
 ## 1.0.1
 
+- On `onlinesim-api` 2.1.1: fixed `Profile.number`/`country`, `paylist` kept when it arrives as a list, `RentSms.code` `"0"` for `notify` SMS, the current error messages.
 - `waitCode` retries `TRY_AGAIN_LATER` (rate limit), `ERROR_UNDEFINED` and `INTERVAL_CONCURRENT_REQUESTS_ERROR`.
 - Docs follow the current API: rent reservation and confirmation, `extend`/`close` rules, `ban` answer `"0"`, the available-balance formula, webhook fields.
+- `MockOnlineSim` follows the backend more closely: rent reservation and confirmation, `rent.close`/`rent.extend` answers, missing vs wrong key — see [Testing](/testing).
 
 ## 1.0.0
 
